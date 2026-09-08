@@ -1,0 +1,68 @@
+{
+  "expo": {
+    "name": "Delivery Tracker",
+    "slug": "delivery-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "deliverytracker",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.twismdev.deliverytracker",
+      "config": {
+        "googleMapsApiKey": "$EXPO_PUBLIC_GOOGLE_MAPS_API_KEY"
+      },
+      "infoPlist": {
+        "UIBackgroundModes": ["location", "fetch"],
+        "NSLocationWhenInUseUsageDescription": "Your location is shown to your dispatcher while you are on a delivery.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Your location keeps updating while a delivery is underway, even when the app is in the background, so your dispatcher can see where you are.",
+        "LSApplicationQueriesSchemes": ["waze", "comgooglemaps", "maps"],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.twismdev.deliverytracker",
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "backgroundColor": "#0F172A"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "$EXPO_PUBLIC_GOOGLE_MAPS_API_KEY"
+        }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [{ "scheme": "deliverytracker" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Your location keeps updating while a delivery is underway so your dispatcher can see where you are.",
+          "locationWhenInUsePermission": "Your location is shown to your dispatcher while you are on a delivery.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
