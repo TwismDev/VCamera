@@ -52,6 +52,12 @@ export default function BossJobBoard() {
         />
       </View>
 
+      <Button
+        title="End of day sheet"
+        variant="secondary"
+        onPress={() => router.push('/boss/eod')}
+      />
+
       {org ? (
         <Text style={styles.teamCode}>
           {org.name} · driver join code <Text style={styles.code}>{org.join_code}</Text>

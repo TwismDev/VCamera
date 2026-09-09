@@ -22,6 +22,7 @@ the dispatcher's board and map live.
 | 6 | Dispatcher | Watches the live map: every driver, every active drop, distance remaining, speed, phone battery, and how long ago each position arrived. |
 | 7 | Driver | Taps **Complete delivery**, confirms products delivered and cash collected (both pre-filled with what was sent out, editable if the drop came up short), adds a note. |
 | 8 | Dispatcher | Sees it land as completed, with delivered-vs-sent and collected-vs-due side by side, and a warning banner if either came back short. Location sharing stops the moment the job closes. |
+| 9 | Dispatcher | At knock-off, the **End of day sheet** totals the day's takings: cash collected, cash due, the difference, a per-driver breakdown of who is holding what, and every delivery with its customer name and time. Any earlier day can be pulled up with the arrows, and the whole thing copies out as plain text for a handover message. |
 
 ### About the ETA
 
@@ -136,8 +137,9 @@ rebuilt client gains nothing — the database refuses the query.
 ### Verifying it yourself
 
 The rules are covered by a test suite that builds a throwaway Postgres from the
-schema file and checks all 29 behaviours — the permitted ones and the denied
-ones:
+schema file and checks 39 behaviours — the permitted ones and the denied ones,
+plus the end-of-day totals (right jobs, right day, and one team's takings never
+visible to another):
 
 ```bash
 ./supabase/tests/run.sh
@@ -173,12 +175,12 @@ so a run can be replayed afterwards.
 app/                        screens (expo-router; the file tree is the navigation)
   index.tsx                 decides where you land based on who you are
   sign-in / sign-up / onboarding
-  boss/                     job board, new job, job detail, live map, team
+  boss/                     job board, new job, job detail, live map, end of day, team
   driver/                   run sheet, job detail, profile
 src/
   lib/                      supabase client, generated DB types, formatting, geo maths
   providers/AuthProvider    session, profile and team, shared across the app
-  hooks/                    realtime job, team and location subscriptions
+  hooks/                    realtime job, team, location and end-of-day queries
   services/
     tracking.ts             background GPS task and its permissions
     eta.ts                  geocoding and drive-time estimation
@@ -186,7 +188,7 @@ src/
   components/               shared UI, sized for use in a moving vehicle
 supabase/
   migrations/0001_schema.sql   the whole database in one idempotent file
-  tests/                       the security suite and its runner
+  tests/                       the security and end-of-day suites, and their runner
 ```
 
 ---

@@ -30,6 +30,7 @@ export default function RootLayout() {
           <Stack.Screen name="boss/new-job" options={{ title: 'New delivery' }} />
           <Stack.Screen name="boss/job/[id]" options={{ title: 'Delivery' }} />
           <Stack.Screen name="boss/map" options={{ title: 'Live map' }} />
+          <Stack.Screen name="boss/eod" options={{ title: 'End of day' }} />
           <Stack.Screen name="boss/team" options={{ title: 'Team' }} />
           <Stack.Screen name="driver/index" options={{ title: 'My deliveries' }} />
           <Stack.Screen name="driver/job/[id]" options={{ title: 'Delivery' }} />
