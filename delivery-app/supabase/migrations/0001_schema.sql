@@ -491,3 +491,208 @@ begin
   exception when duplicate_object then null; end;
 end
 $$;
+
+-- ===========================================================================
+-- Push notifications
+--
+-- A driver with the app closed still needs to hear about a job. The device
+-- registers an Expo push token; a trigger on `jobs` hands the job id to the
+-- `notify-driver` edge function, which does the sending. The database never
+-- talks to Expo directly, and the client never holds a server credential.
+--
+-- After deploying the edge function, point this project at it:
+--
+--   update private.push_config
+--      set functions_url = 'https://<project-ref>.supabase.co/functions/v1/notify-driver',
+--          enabled = true;
+--
+-- Until then `enabled` is false and push is simply inert.
+-- ===========================================================================
+
+-- Async HTTP, so a trigger can hand off work without holding the transaction.
+-- Absent on a plain Postgres (the test harness stubs it instead).
+do $$
+begin
+  create extension if not exists pg_net;
+exception when others then
+  raise notice 'pg_net unavailable — push dispatch will be stubbed or inert';
+end
+$$;
+
+-- Private config: outside `public`, so PostgREST never exposes it, and behind
+-- RLS with no policies, so only the service role can read it.
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+
+create table if not exists private.push_config (
+  id             boolean primary key default true check (id),
+  functions_url  text not null default '',
+  webhook_secret text not null,
+  enabled        boolean not null default false,
+  updated_at     timestamptz not null default now()
+);
+
+alter table private.push_config enable row level security;
+revoke all on private.push_config from public, anon, authenticated;
+
+-- ~244 bits of randomness, generated once and never sent back out of the
+-- database — the edge function proves it knows the secret instead. Built from
+-- gen_random_uuid() rather than pgcrypto, which sits in a different schema on
+-- Supabase than it does on a stock Postgres.
+insert into private.push_config (id, webhook_secret)
+values (
+  true,
+  replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '')
+)
+on conflict (id) do nothing;
+
+create table if not exists public.device_tokens (
+  id           uuid primary key default gen_random_uuid(),
+  profile_id   uuid not null references public.profiles (id) on delete cascade,
+  expo_token   text not null unique,
+  platform     text check (platform is null or platform in ('ios', 'android')),
+  device_name  text,
+  created_at   timestamptz not null default now(),
+  last_seen_at timestamptz not null default now()
+);
+
+create index if not exists device_tokens_profile_idx on public.device_tokens (profile_id);
+
+alter table public.device_tokens enable row level security;
+
+-- A push token is personal: you manage your own and read nobody else's. The
+-- edge function reads them with the service role, which bypasses RLS.
+drop policy if exists device_tokens_select_own on public.device_tokens;
+create policy device_tokens_select_own on public.device_tokens
+  for select to authenticated using (profile_id = auth.uid());
+
+drop policy if exists device_tokens_insert_own on public.device_tokens;
+create policy device_tokens_insert_own on public.device_tokens
+  for insert to authenticated with check (profile_id = auth.uid());
+
+drop policy if exists device_tokens_update_own on public.device_tokens;
+create policy device_tokens_update_own on public.device_tokens
+  for update to authenticated
+  using (profile_id = auth.uid()) with check (profile_id = auth.uid());
+
+drop policy if exists device_tokens_delete_own on public.device_tokens;
+create policy device_tokens_delete_own on public.device_tokens
+  for delete to authenticated using (profile_id = auth.uid());
+
+-- One handset can change hands between drivers, so registering re-points an
+-- existing token at whoever is signed in now.
+create or replace function public.register_device_token(
+  p_token       text,
+  p_platform    text default null,
+  p_device_name text default null
+)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Not signed in'; end if;
+  if coalesce(btrim(p_token), '') = '' then raise exception 'Empty push token'; end if;
+
+  insert into public.device_tokens (profile_id, expo_token, platform, device_name)
+  values (auth.uid(), btrim(p_token), p_platform, p_device_name)
+  on conflict (expo_token) do update
+    set profile_id   = auth.uid(),
+        platform     = coalesce(excluded.platform, device_tokens.platform),
+        device_name  = coalesce(excluded.device_name, device_tokens.device_name),
+        last_seen_at = now();
+end;
+$$;
+
+create or replace function public.unregister_device_token(p_token text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Not signed in'; end if;
+  delete from public.device_tokens
+   where expo_token = btrim(p_token) and profile_id = auth.uid();
+end;
+$$;
+
+-- Called only by the edge function, as the service role.
+create or replace function public.verify_push_secret(p_secret text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from private.push_config
+     where id and enabled and webhook_secret = p_secret
+  );
+$$;
+
+create or replace function public.prune_device_tokens(p_tokens text[])
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  removed integer;
+begin
+  delete from public.device_tokens where expo_token = any(p_tokens);
+  get diagnostics removed = row_count;
+  return removed;
+end;
+$$;
+
+create or replace function public.dispatch_job_push(p_job uuid, p_event text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  cfg private.push_config;
+begin
+  select * into cfg from private.push_config where id;
+  if cfg is null or not cfg.enabled or coalesce(cfg.functions_url, '') = '' then
+    return;
+  end if;
+
+  perform net.http_post(
+    url     := cfg.functions_url,
+    headers := jsonb_build_object(
+                 'Content-Type', 'application/json',
+                 'x-webhook-secret', cfg.webhook_secret
+               ),
+    body    := jsonb_build_object('job_id', p_job, 'event', p_event),
+    timeout_milliseconds := 5000
+  );
+exception when others then
+  -- A push is a courtesy. It must never be why a job fails to save.
+  raise warning 'push dispatch failed for job %: %', p_job, sqlerrm;
+end;
+$$;
+
+create or replace function public.on_job_notify_driver()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.driver_id is not null then
+      perform public.dispatch_job_push(new.id, 'assigned');
+    end if;
+    return new;
+  end if;
+
+  -- Handed to a different driver, or assigned for the first time.
+  if new.driver_id is not null and new.driver_id is distinct from old.driver_id then
+    perform public.dispatch_job_push(new.id, 'assigned');
+    return new;
+  end if;
+
+  -- Called off: worth a buzz so nobody drives to a drop that is no longer on.
+  if new.driver_id is not null
+     and new.status = 'cancelled' and old.status is distinct from 'cancelled' then
+    perform public.dispatch_job_push(new.id, 'cancelled');
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists jobs_notify_driver on public.jobs;
+create trigger jobs_notify_driver after insert or update on public.jobs
+  for each row execute function public.on_job_notify_driver();
+
+revoke all on function public.register_device_token(text, text, text) from public, anon;
+revoke all on function public.unregister_device_token(text)           from public, anon;
+revoke all on function public.verify_push_secret(text)     from public, anon, authenticated;
+revoke all on function public.prune_device_tokens(text[])  from public, anon, authenticated;
+revoke all on function public.dispatch_job_push(uuid, text) from public, anon, authenticated;
+revoke all on function public.on_job_notify_driver()        from public, anon, authenticated;
+
+grant execute on function public.register_device_token(text, text, text) to authenticated;
+grant execute on function public.unregister_device_token(text)           to authenticated;
+grant execute on function public.verify_push_secret(text)    to service_role;
+grant execute on function public.prune_device_tokens(text[]) to service_role;

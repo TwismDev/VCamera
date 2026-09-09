@@ -3,7 +3,8 @@ import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { AuthProvider } from '@/providers/AuthProvider';
+import { useNotificationRouting } from '@/hooks/useNotificationRouting';
+import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 // Imported for its side effect: registers the background location task before
 // Android can wake the app headless into it.
 import '@/services/tracking';
@@ -14,7 +15,21 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <AuthProvider>
         <StatusBar style="dark" />
-        <Stack
+        <Navigation />
+      </AuthProvider>
+    </SafeAreaProvider>
+  );
+}
+
+function Navigation() {
+  const { session, loading } = useAuth();
+
+  // Routing a notification tap has to wait until there is somewhere to route
+  // to — a signed-out app would bounce straight back to the sign-in screen.
+  useNotificationRouting(!loading && Boolean(session));
+
+  return (
+    <Stack
           screenOptions={{
             headerStyle: { backgroundColor: colors.surface },
             headerTintColor: colors.text,
@@ -35,8 +50,6 @@ export default function RootLayout() {
           <Stack.Screen name="driver/index" options={{ title: 'My deliveries' }} />
           <Stack.Screen name="driver/job/[id]" options={{ title: 'Delivery' }} />
           <Stack.Screen name="driver/profile" options={{ title: 'Profile' }} />
-        </Stack>
-      </AuthProvider>
-    </SafeAreaProvider>
+    </Stack>
   );
 }

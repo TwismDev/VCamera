@@ -15,7 +15,7 @@ the dispatcher's board and map live.
 | Step | Who | What happens |
 | --- | --- | --- |
 | 1 | Dispatcher | Creates a job: address, number of products, cash to collect, optional customer and notes. The address is geocoded on save, so the map pin and the driver's ETA work immediately. |
-| 2 | Dispatcher | Assigns it to a driver. It appears on that driver's phone right away over the realtime feed — no refresh, no polling. |
+| 2 | Dispatcher | Assigns it to a driver. It appears on that driver's phone right away over the realtime feed, and a **push notification** buzzes them even if the app is closed. Cancelling a job pushes too, so nobody drives to a drop that is off. |
 | 3 | Driver | **Accepts** or declines. Accepting stamps the time server-side. |
 | 4 | Driver | Taps **Calculate drive time** for an automatic ETA, adjusts the number if they know better, and sends it. Waze, Google Maps and the built-in maps app all open the address for actual navigation. |
 | 5 | Driver | Taps **Start delivery**. Their position streams to the dispatcher every ~15 seconds (or every 30 m), in the background, with the screen off. |
@@ -137,9 +137,10 @@ rebuilt client gains nothing — the database refuses the query.
 ### Verifying it yourself
 
 The rules are covered by a test suite that builds a throwaway Postgres from the
-schema file and checks 39 behaviours — the permitted ones and the denied ones,
-plus the end-of-day totals (right jobs, right day, and one team's takings never
-visible to another):
+schema file and checks 56 behaviours — the permitted ones and the denied ones,
+the end-of-day totals (right jobs, right day, and one team's takings never
+visible to another), and push dispatch (the right events fire, the wrong ones
+stay silent, and the webhook secret is out of reach of any signed-in user):
 
 ```bash
 ./supabase/tests/run.sh
@@ -149,6 +150,51 @@ It needs a local PostgreSQL 15+ (`initdb`, `pg_ctl`, `psql`) and nothing else �
 no Supabase account, no network. Any `FAIL` row is a real regression.
 
 ---
+
+## Push notifications
+
+A driver's phone registers an Expo push token against their profile. A trigger
+on `jobs` hands the job id to the `notify-driver` edge function, which looks up
+the driver's devices and sends through Expo. Two things buzz a driver: a job
+being assigned to them, and a job they hold being cancelled. Accepting, sending
+an ETA and completing deliberately stay silent — a driver should not be
+notified about their own taps.
+
+The database never talks to Expo, and the phone never holds a server
+credential. The function's endpoint is public (Postgres has no user session to
+present), so it is guarded by a 256-bit shared secret kept in a `private`
+schema that PostgREST does not expose. The function proves it knows the secret
+via `verify_push_secret` rather than reading it, so the secret never leaves the
+database.
+
+Expo replies per device, and tokens it reports as `DeviceNotRegistered` — an
+uninstalled or reset handset — are pruned automatically.
+
+### Turning it on
+
+Push is already deployed and enabled on the provisioned project. Two things are
+needed for a token to actually be issued on a phone:
+
+1. **An EAS project id.** Expo mints push tokens per project. Run `npx eas-cli
+   init` in `delivery-app/`, which writes `extra.eas.projectId` into `app.json`,
+   then rebuild. Without it the app runs fine and simply reports push as
+   unavailable on the driver's Profile screen.
+2. **A real device.** Simulators cannot receive push.
+
+On a different Supabase project, also deploy the function and point the
+database at it:
+
+```bash
+supabase functions deploy notify-driver --no-verify-jwt
+```
+
+```sql
+update private.push_config
+   set functions_url = 'https://<project-ref>.supabase.co/functions/v1/notify-driver',
+       enabled = true;
+```
+
+Until `enabled` is true, push is inert and everything else works unchanged.
 
 ## Location tracking, honestly
 
@@ -185,9 +231,11 @@ src/
     tracking.ts             background GPS task and its permissions
     eta.ts                  geocoding and drive-time estimation
     navigation.ts           handing an address to Waze / Google / Apple Maps
+    push.ts                 push token registration and notification payloads
   components/               shared UI, sized for use in a moving vehicle
 supabase/
   migrations/0001_schema.sql   the whole database in one idempotent file
+  functions/notify-driver/     the edge function that sends the pushes
   tests/                       the security and end-of-day suites, and their runner
 ```
 
@@ -195,10 +243,6 @@ supabase/
 
 ## Worth knowing before you ship
 
-- **Push notifications aren't wired up.** A new job appears instantly while the
-  app is open, but a driver with the app closed won't get a buzz. That needs an
-  Expo push token per device and a small Supabase edge function on job insert —
-  the natural next piece of work.
 - **Bundle identifiers** are `com.twismdev.deliverytracker` on both platforms.
   Change them in `app.json` before submitting to either store.
 - **App store review**: both stores scrutinise background location. Have the

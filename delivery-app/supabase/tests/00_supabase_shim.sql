@@ -55,3 +55,40 @@ end
 $$;
 
 create extension if not exists "pgcrypto";
+
+-- pg_net is a Supabase extension and is absent from a plain Postgres. This stub
+-- records what the push trigger *would* have sent, so the dispatch can be
+-- asserted on without a network.
+create schema if not exists net;
+
+create table if not exists net.sent_requests (
+  id      bigint generated always as identity primary key,
+  url     text,
+  headers jsonb,
+  body    jsonb,
+  sent_at timestamptz not null default now()
+);
+
+create or replace function net.http_post(
+  url text,
+  body jsonb default '{}'::jsonb,
+  params jsonb default '{}'::jsonb,
+  headers jsonb default '{}'::jsonb,
+  timeout_milliseconds int default 5000
+)
+returns bigint language plpgsql as $$
+declare
+  new_id bigint;
+begin
+  insert into net.sent_requests (url, headers, body)
+  values (url, headers, body)
+  returning id into new_id;
+  return new_id;
+end;
+$$;
+
+-- Test-only: the suites read this stub back to assert what would have been
+-- sent. The real `net` schema on Supabase stays locked down; nothing in the
+-- application reads it.
+grant usage on schema net to anon, authenticated, service_role;
+grant select on net.sent_requests to anon, authenticated, service_role;

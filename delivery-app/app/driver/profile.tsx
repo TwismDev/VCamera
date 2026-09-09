@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { Banner, Button, Card, Field, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
+import { pushUnavailableReason } from '@/services/push';
 import {
   isTracking,
   requestTrackingPermissions,
@@ -16,7 +17,7 @@ import {
 import { colors, spacing, type } from '@/theme';
 
 export default function DriverProfile() {
-  const { profile, org, refresh, signOut } = useAuth();
+  const { profile, org, push, refresh, signOut } = useAuth();
   const router = useRouter();
 
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
@@ -91,6 +92,26 @@ export default function DriverProfile() {
             )
           }
         />
+      </Card>
+
+      <Card>
+        <SectionTitle>Job alerts</SectionTitle>
+        <Row
+          label="Notifications"
+          value={
+            <Pill
+              text={push?.ok ? 'On' : push ? 'Off' : 'Checking…'}
+              tone={push?.ok ? 'success' : push ? 'warning' : 'neutral'}
+            />
+          }
+        />
+        {push && !push.ok ? (
+          <Banner tone="warning">{pushUnavailableReason[push.reason]}</Banner>
+        ) : (
+          <Text style={styles.muted}>
+            You’ll be alerted when a job is sent to you, even with the app closed.
+          </Text>
+        )}
       </Card>
 
       <Card>

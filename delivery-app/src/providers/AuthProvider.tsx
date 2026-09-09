@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 
 import { supabase } from '@/lib/supabase';
 import type { Organization, Profile, Role } from '@/lib/types';
+import { registerForPush, unregisterFromPush, type PushRegistration } from '@/services/push';
 import { stopTracking } from '@/services/tracking';
 
 type AuthValue = {
@@ -10,6 +11,8 @@ type AuthValue = {
   profile: Profile | null;
   org: Organization | null;
   loading: boolean;
+  /** Null until push registration has been attempted for this session. */
+  push: PushRegistration | null;
   refresh: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (input: { email: string; password: string; fullName: string; phone?: string; role: Role }) => Promise<void>;
@@ -23,6 +26,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [org, setOrg] = useState<Organization | null>(null);
   const [loading, setLoading] = useState(true);
+  const [push, setPush] = useState<PushRegistration | null>(null);
 
   const loadProfile = useCallback(async (userId: string | undefined) => {
     if (!userId) {
@@ -73,6 +77,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [loadProfile]);
 
+  // Only drivers are sent jobs, so only drivers are asked for notification
+  // permission — there is no sense prompting a dispatcher for a buzz that will
+  // never come.
+  useEffect(() => {
+    if (!session || profile?.role !== 'driver' || !profile.org_id) return;
+
+    let active = true;
+    registerForPush().then((result) => {
+      if (!active) return;
+      setPush(result);
+      if (!result.ok && __DEV__) {
+        console.log('[push] not registered:', result.reason, result.detail ?? '');
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [session, profile?.role, profile?.org_id]);
+
   const refresh = useCallback(async () => {
     await loadProfile(session?.user.id);
   }, [loadProfile, session?.user.id]);
@@ -95,16 +119,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    // Never leave a phone quietly broadcasting after the driver signs out.
+    // Never leave a phone quietly broadcasting, or buzzing, after sign-out.
     await stopTracking().catch(() => undefined);
+    await unregisterFromPush().catch(() => undefined);
     await supabase.auth.signOut();
     setProfile(null);
     setOrg(null);
+    setPush(null);
   }, []);
 
   const value = useMemo<AuthValue>(
-    () => ({ session, profile, org, loading, refresh, signIn, signUp, signOut }),
-    [session, profile, org, loading, refresh, signIn, signUp, signOut],
+    () => ({ session, profile, org, loading, push, refresh, signIn, signUp, signOut }),
+    [session, profile, org, loading, push, refresh, signIn, signUp, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

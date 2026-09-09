@@ -7,7 +7,9 @@
     "scheme": "deliverytracker",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.twismdev.deliverytracker",
@@ -15,10 +17,17 @@
         "googleMapsApiKey": "$EXPO_PUBLIC_GOOGLE_MAPS_API_KEY"
       },
       "infoPlist": {
-        "UIBackgroundModes": ["location", "fetch"],
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ],
         "NSLocationWhenInUseUsageDescription": "Your location is shown to your dispatcher while you are on a delivery.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Your location keeps updating while a delivery is underway, even when the app is in the background, so your dispatcher can see where you are.",
-        "LSApplicationQueriesSchemes": ["waze", "comgooglemaps", "maps"],
+        "LSApplicationQueriesSchemes": [
+          "waze",
+          "comgooglemaps",
+          "maps"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -44,8 +53,15 @@
       "intentFilters": [
         {
           "action": "VIEW",
-          "data": [{ "scheme": "deliverytracker" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "deliverytracker"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -58,6 +74,13 @@
           "locationWhenInUsePermission": "Your location is shown to your dispatcher while you are on a delivery.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#1D4ED8",
+          "defaultChannel": "jobs"
         }
       ]
     ],

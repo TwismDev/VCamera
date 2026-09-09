@@ -63,3 +63,7 @@ psql -h "$base" -p "$port" -U postgres -v ON_ERROR_STOP=1 \
 echo
 psql -h "$base" -p "$port" -U postgres -v ON_ERROR_STOP=1 \
   -f "$here/02_end_of_day.sql"
+
+echo
+psql -h "$base" -p "$port" -U postgres -v ON_ERROR_STOP=1 \
+  -f "$here/03_push.sql"

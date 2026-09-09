@@ -229,6 +229,44 @@ export type Database = {
           },
         ];
       };
+      device_tokens: {
+        Row: {
+          id: string;
+          profile_id: string;
+          expo_token: string;
+          platform: string | null;
+          device_name: string | null;
+          created_at: string;
+          last_seen_at: string;
+        };
+        Insert: {
+          id?: string;
+          profile_id: string;
+          expo_token: string;
+          platform?: string | null;
+          device_name?: string | null;
+          created_at?: string;
+          last_seen_at?: string;
+        };
+        Update: {
+          id?: string;
+          profile_id?: string;
+          expo_token?: string;
+          platform?: string | null;
+          device_name?: string | null;
+          created_at?: string;
+          last_seen_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'device_tokens_profile_id_fkey';
+            columns: ['profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       location_pings: {
         Row: {
           id: number;
@@ -303,6 +341,11 @@ export type Database = {
         Returns: { id: string; name: string; join_code: string; created_at: string };
         SetofOptions: { from: '*'; to: 'organizations'; isOneToOne: true; isSetofReturn: false };
       };
+      register_device_token: {
+        Args: { p_token: string; p_platform?: string | null; p_device_name?: string | null };
+        Returns: undefined;
+      };
+      unregister_device_token: { Args: { p_token: string }; Returns: undefined };
       leave_organization: { Args: never; Returns: undefined };
       remove_member: { Args: { p_member: string }; Returns: undefined };
       set_member_role: { Args: { p_member: string; p_role: string }; Returns: undefined };
