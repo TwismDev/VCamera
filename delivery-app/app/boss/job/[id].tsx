@@ -1,6 +1,6 @@
 import { Picker } from '@react-native-picker/picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { STATUS_TONE } from '@/components/JobCard';
@@ -22,6 +22,13 @@ export default function BossJobDetail() {
   const { drivers } = useTeam(profile?.org_id);
   const { locations } = useDriverLocations(profile?.org_id);
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // The countdown and the staleness warning are only useful if they tick.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const driverPosition = useMemo(
     () => locations.find((location) => location.driver_id === job?.driver_id) ?? null,
@@ -36,6 +43,23 @@ export default function BossJobDetail() {
       { lat: job.address_lat as number, lng: job.address_lng as number },
     );
   }, [job, driverPosition]);
+
+  /** Minutes until the promised arrival — negative once it has passed. */
+  const minutesRemaining = useMemo(() => {
+    if (!job?.eta_at) return null;
+    return Math.round((new Date(job.eta_at).getTime() - now) / 60_000);
+  }, [job?.eta_at, now]);
+
+  /**
+   * An auto ETA refreshes every couple of minutes while the driver drives, so a
+   * much older one means the stream has stopped rather than that traffic is
+   * steady. A typed ETA is never stale — the driver meant it.
+   */
+  const etaIsStale = useMemo(() => {
+    if (!job || job.status !== 'en_route') return false;
+    if (job.eta_source !== 'auto' || !job.eta_updated_at) return false;
+    return now - new Date(job.eta_updated_at).getTime() > 6 * 60_000;
+  }, [job, now]);
 
   if (loading) return <Loading />;
   if (!job) return <Screen><Text style={type.body}>This job no longer exists.</Text></Screen>;
@@ -127,13 +151,28 @@ export default function BossJobDetail() {
           <Text style={styles.muted}>The driver hasn’t sent an ETA yet.</Text>
         ) : (
           <>
-            <Row label="Driver said" value={minutesLabel(job.eta_minutes)} emphasis />
-            <Row label="Arriving around" value={clockTime(job.eta_at)} />
             <Row
-              label="Source"
-              value={job.eta_source === 'auto' ? 'Calculated by the app' : 'Typed by the driver'}
+              label={minutesRemaining == null || minutesRemaining >= 0 ? 'Arriving in' : 'Overdue by'}
+              value={
+                minutesRemaining == null
+                  ? minutesLabel(job.eta_minutes)
+                  : minutesLabel(Math.abs(minutesRemaining))
+              }
+              emphasis
+            />
+            <Row label="Which is around" value={clockTime(job.eta_at)} />
+            <Row
+              label="Based on"
+              value={job.eta_source === 'auto' ? 'Live traffic' : 'The driver’s own estimate'}
             />
             <Row label="Updated" value={relativeTime(job.eta_updated_at)} />
+
+            {etaIsStale ? (
+              <Banner tone="warning">
+                This ETA hasn’t refreshed in a while. The driver’s phone may have lost signal or
+                closed the app.
+              </Banner>
+            ) : null}
           </>
         )}
       </Card>

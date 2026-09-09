@@ -5,10 +5,13 @@ import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 
 import { config } from '@/lib/config';
+import { haversineKm, type LatLng } from '@/lib/geo';
 import { supabase } from '@/lib/supabase';
+import { estimateEta } from './eta';
 
 export const LOCATION_TASK_NAME = 'delivery-tracker-location';
 const CONTEXT_KEY = 'delivery-tracker/tracking-context';
+const ETA_STATE_KEY = 'delivery-tracker/eta-refresh';
 
 /**
  * What the background task needs in order to file a position. It is kept in
@@ -19,6 +22,17 @@ type TrackingContext = {
   driverId: string;
   orgId: string;
   jobId: string | null;
+  /**
+   * Where the job is going. Carried here so the background task can refresh the
+   * ETA without a database round trip on every position fix.
+   */
+  destination?: LatLng | null;
+};
+
+/** When the ETA was last recomputed, and from where. */
+type EtaRefreshState = {
+  at: number;
+  from: LatLng;
 };
 
 export type PermissionOutcome =
@@ -64,6 +78,8 @@ export async function isTracking(): Promise<boolean> {
 /** Begins streaming this driver's position, tagged to the job they are running. */
 export async function startTracking(context: TrackingContext): Promise<void> {
   await setTrackingContext(context);
+  // A new job starts with a clean slate, so the first fix refreshes at once.
+  await AsyncStorage.removeItem(ETA_STATE_KEY);
 
   if (await isTracking()) {
     // Already running — the stored context above re-tags pings to the new job.
@@ -94,6 +110,7 @@ export async function stopTracking(): Promise<void> {
     await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
   }
   await setTrackingContext(null);
+  await AsyncStorage.removeItem(ETA_STATE_KEY);
 }
 
 /** Takes a single reading now, so the boss sees a pin without waiting a cycle. */
@@ -163,6 +180,76 @@ export async function recordPositions(positions: Location.LocationObject[]): Pro
       `[tracking] ${rows.length} fix(es), latest ${latest.coords.latitude.toFixed(5)},` +
         `${latest.coords.longitude.toFixed(5)}`,
     );
+  }
+
+  // A failed refresh must not cost us the position we just recorded.
+  await maybeRefreshEta(context, latest).catch((err) => {
+    if (__DEV__) console.warn('[eta] refresh failed', err);
+  });
+}
+
+async function readEtaState(): Promise<EtaRefreshState | null> {
+  try {
+    const raw = await AsyncStorage.getItem(ETA_STATE_KEY);
+    return raw ? (JSON.parse(raw) as EtaRefreshState) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Keeps the dispatcher's ETA honest while the driver is on the road.
+ *
+ * An ETA sent at the kerb is worth little twenty minutes into a jam, so this
+ * recomputes it from the driver's live position and writes it back. It only
+ * touches jobs whose ETA the app worked out itself: if the driver typed their
+ * own number, they know something the routing engine does not, and it stands
+ * until they ask for a fresh calculation.
+ */
+async function maybeRefreshEta(
+  context: TrackingContext,
+  position: Location.LocationObject,
+): Promise<void> {
+  const { jobId, destination } = context;
+  if (!jobId || !destination) return;
+
+  const here: LatLng = { lat: position.coords.latitude, lng: position.coords.longitude };
+  const previous = await readEtaState();
+  const now = Date.now();
+
+  if (previous) {
+    if (now - previous.at < config.tracking.etaRefreshMs) return;
+    // Sitting still at a drop or a light is not worth a routing call.
+    if (haversineKm(previous.from, here) * 1000 < config.tracking.etaRefreshMinMoveM) return;
+  }
+
+  // Claim the slot before the network call, so overlapping fixes don't both go.
+  await AsyncStorage.setItem(ETA_STATE_KEY, JSON.stringify({ at: now, from: here }));
+
+  // Cheaper than a routing request: check the job still wants an auto ETA.
+  const { data: job } = await supabase
+    .from('jobs')
+    .select('status, eta_source')
+    .eq('id', jobId)
+    .maybeSingle();
+
+  if (!job || job.status !== 'en_route' || job.eta_source !== 'auto') return;
+
+  const estimate = await estimateEta(here, destination);
+
+  await supabase
+    .from('jobs')
+    .update({
+      eta_minutes: estimate.minutes,
+      eta_at: new Date(now + estimate.minutes * 60_000).toISOString(),
+      eta_source: 'auto',
+    })
+    .eq('id', jobId)
+    .eq('status', 'en_route')
+    .eq('eta_source', 'auto');
+
+  if (__DEV__) {
+    console.log(`[eta] refreshed to ${estimate.minutes} min via ${estimate.provider}`);
   }
 }
 

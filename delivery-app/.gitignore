@@ -7,3 +7,4 @@ ios/
 *.log
 .DS_Store
 expo-env.d.ts
+tests/.build/

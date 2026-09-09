@@ -10,7 +10,13 @@ import { isLatLng, kmLabel, type LatLng } from '@/lib/geo';
 import { supabase } from '@/lib/supabase';
 import { updateJob, useJob } from '@/hooks/useJobs';
 import { useAuth } from '@/providers/AuthProvider';
-import { estimateEta, geocodeAddress, type EtaEstimate } from '@/services/eta';
+import {
+  estimateEta,
+  geocodeAddress,
+  PROVIDER_LABEL,
+  PROVIDER_USES_LIVE_TRAFFIC,
+  type EtaEstimate,
+} from '@/services/eta';
 import { NAV_APP_LABEL, openDialer, openNavigation, type NavApp } from '@/services/navigation';
 import {
   isTracking,
@@ -142,8 +148,17 @@ export default function DriverJobDetail() {
     const saved = await patch({ status: 'en_route' });
     if (!saved) return;
 
+    // Hand the drop's coordinates to the tracker so it can keep the ETA fresh
+    // from the driver's live position without re-reading the job each time.
+    const destination = await destinationCoords();
+
     try {
-      await startTracking({ driverId: profile.id, orgId: profile.org_id, jobId: job.id });
+      await startTracking({
+        driverId: profile.id,
+        orgId: profile.org_id,
+        jobId: job.id,
+        destination,
+      });
       setTracking(true);
     } catch (err) {
       Alert.alert('Tracking did not start', err instanceof Error ? err.message : 'Unknown error');
@@ -264,9 +279,18 @@ export default function DriverJobDetail() {
           <Card>
             <SectionTitle>Your ETA</SectionTitle>
             {job.eta_minutes != null ? (
-              <Banner tone="info">
-                Sent: {minutesLabel(job.eta_minutes)} — arriving around {clockTime(job.eta_at)}
-              </Banner>
+              <>
+                <Banner tone="info">
+                  Sent: {minutesLabel(job.eta_minutes)} — arriving around {clockTime(job.eta_at)}
+                </Banner>
+                {job.status === 'en_route' ? (
+                  <Text style={styles.muted}>
+                    {job.eta_source === 'auto'
+                      ? 'Updating by itself as you drive, so your dispatcher always sees a current number.'
+                      : 'This is your typed ETA, so it stays put. Tap Calculate to hand it back to live traffic.'}
+                  </Text>
+                ) : null}
+              </>
             ) : (
               <Text style={styles.muted}>Your dispatcher is waiting on an ETA.</Text>
             )}
@@ -279,14 +303,22 @@ export default function DriverJobDetail() {
             />
 
             {estimate ? (
-              <Text style={styles.estimate}>
-                {estimate.provider === 'google'
-                  ? 'Google, with live traffic'
-                  : estimate.provider === 'osrm'
-                    ? 'Road routing, no traffic'
-                    : 'Rough estimate — check it in Waze'}
-                {estimate.distanceKm > 0 ? ` · ${kmLabel(estimate.distanceKm)}` : ''}
-              </Text>
+              <>
+                <Text
+                  style={[
+                    styles.estimate,
+                    !PROVIDER_USES_LIVE_TRAFFIC[estimate.provider] && styles.estimateWeak,
+                  ]}
+                >
+                  {PROVIDER_LABEL[estimate.provider]}
+                  {estimate.distanceKm > 0 ? ` · ${kmLabel(estimate.distanceKm)}` : ''}
+                </Text>
+                {estimate.trafficDelayMinutes != null && estimate.trafficDelayMinutes > 0 ? (
+                  <Text style={styles.estimateWeak}>
+                    {estimate.trafficDelayMinutes} min of that is traffic
+                  </Text>
+                ) : null}
+              </>
             ) : null}
 
             <Field
@@ -407,6 +439,7 @@ const styles = StyleSheet.create({
   muted: { ...type.body, color: colors.textMuted },
   notes: { ...type.body, backgroundColor: colors.bg, padding: spacing.md, borderRadius: radius.sm },
   estimate: { ...type.label, color: colors.primary },
+  estimateWeak: { ...type.label, color: colors.textMuted },
   etaInput: { fontSize: 24, fontWeight: '700' },
   pair: { flexDirection: 'row', gap: spacing.md },
   pairItem: { flex: 1 },

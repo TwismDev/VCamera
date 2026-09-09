@@ -34,10 +34,29 @@ about the loading bay, the coffee stop, and the road that's shut. Whichever way
 the number was arrived at is recorded, so the dispatcher sees "Calculated by the
 app" or "Typed by the driver" next to it.
 
-Routing uses Google Directions (with live traffic) when a Google Maps key is
-configured, the free OSRM service when it isn't, and a distance-based estimate
-if both are unreachable — so the driver always gets a number to work from rather
-than an error.
+**The ETA keeps itself current.** Sending one number at the kerb is close to
+useless twenty minutes into a jam, so while a driver is en route the app
+recomputes the drive time from their live position every couple of minutes and
+updates the dispatcher — no taps, works with the screen off, riding on the GPS
+stream that is already running. If the driver typed their own number, it stands
+until they ask for a fresh calculation; they know things the routing engine
+doesn't. The dispatcher sees a live "arriving in" countdown, and a warning if
+an automatic ETA stops refreshing, which means the driver's phone has lost
+signal rather than that traffic is steady.
+
+Routing falls down a ladder, best first:
+
+| Provider | Live traffic | Needs |
+| --- | --- | --- |
+| **Google Routes API** (`TRAFFIC_AWARE_OPTIMAL`) | Yes | `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` |
+| Google Directions (legacy) | Yes | An older key where Routes isn't enabled |
+| Mapbox `driving-traffic` | Yes | `EXPO_PUBLIC_MAPBOX_TOKEN` |
+| OSRM | No — real roads, no conditions | Nothing |
+| Straight-line estimate | No | Nothing |
+
+Each rung falls through to the next on failure, so the driver always gets a
+number to work from rather than an error, and the app says which rung it used
+(and how much of the estimate is traffic) instead of implying false precision.
 
 ---
 
@@ -102,15 +121,20 @@ publishable keys are designed to ship inside client apps — the database is
 protected by row level security, not by hiding the key, and any `EXPO_PUBLIC_`
 value ends up in the app bundle regardless.
 
-**The Google Maps key is optional but worth adding.** Without it:
+**The Google Maps key is optional but the single biggest accuracy win.**
+Without it:
 
-- ETAs come from OSRM (real road routing, but no live traffic) instead of Google.
+- ETAs lose live traffic, falling to Mapbox if you set a token, then to OSRM —
+  real road routing, but blind to conditions.
 - The live map on **Android** renders blank, because Android's map view requires
   a Google key. iPhone is fine either way — it falls back to Apple Maps, which
   needs no key. The driver list below the map still works on both.
 
-Get a key from the Google Cloud console with **Maps SDK for Android**, **Maps
-SDK for iOS** and **Directions API** enabled, then rebuild.
+Get a key from the Google Cloud console with **Routes API**, **Maps SDK for
+Android** and **Maps SDK for iOS** enabled, then rebuild. Note it is the
+*Routes* API, not the older Directions API — Google made Directions legacy, and
+new Cloud projects can no longer enable it. The app still speaks Directions as a
+fallback for keys that predate the change.
 
 ---
 
@@ -143,11 +167,16 @@ visible to another), and push dispatch (the right events fire, the wrong ones
 stay silent, and the webhook secret is out of reach of any signed-in user):
 
 ```bash
-./supabase/tests/run.sh
+npm run test:db     # 56 database checks, from schema to RLS to push dispatch
+npm run test:eta    # 22 checks on the ETA provider ladder, against stubbed HTTP
 ```
 
-It needs a local PostgreSQL 15+ (`initdb`, `pg_ctl`, `psql`) and nothing else —
-no Supabase account, no network. Any `FAIL` row is a real regression.
+The database suite needs a local PostgreSQL 15+ (`initdb`, `pg_ctl`, `psql`)
+and nothing else — no Supabase account, no network. The ETA suite needs neither,
+and deliberately never calls a routing service: those cost money per request,
+so it asserts what actually goes wrong in practice — which provider is chosen,
+what is sent, how each response shape is read, and that a failure downgrades a
+rung rather than throwing. Any `FAIL` row is a real regression.
 
 ---
 
