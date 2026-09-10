@@ -15,6 +15,7 @@ the dispatcher's board and map live.
 | Step | Who | What happens |
 | --- | --- | --- |
 | 1 | Dispatcher | Creates a job: address, number of products, cash to collect, optional customer and notes. The address is geocoded on save, so the map pin and the driver's ETA work immediately. |
+| 1b | **Driver** | Can also raise a job themselves — a walk-up, or a customer who called them directly. It lands on the dispatcher's board marked **Driver added**, already accepted, and is tracked exactly like any other job. |
 | 2 | Dispatcher | Assigns it to a driver. It appears on that driver's phone right away over the realtime feed, and a **push notification** buzzes them even if the app is closed. Cancelling a job pushes too, so nobody drives to a drop that is off. |
 | 3 | Driver | **Accepts** or declines. Accepting stamps the time server-side. |
 | 4 | Driver | Taps **Calculate drive time** for an automatic ETA, adjusts the number if they know better, and sends it. Waze, Google Maps and the built-in maps app all open the address for actual navigation. |
@@ -146,8 +147,16 @@ rebuilt client gains nothing — the database refuses the query.
 - A **dispatcher** sees every job and every driver's position on their own team.
 - A **driver** sees only the jobs assigned to them, and can only report their
   own position.
-- A driver cannot create jobs, promote themselves, move themselves between
-  teams, or file a position under another driver's name.
+- A driver **can** raise a job for themselves, but never for a colleague:
+  handing work to someone else stays a dispatcher's call. A driver-raised job
+  cannot masquerade as dispatcher-issued.
+- On a job the dispatcher sent out, a driver may report what happened — status,
+  ETA, products delivered, cash collected, notes — but cannot rewrite the brief.
+  The address, item count and cash due are pinned, so a driver cannot quietly
+  lower `cash_to_collect` to match a short drop before the end-of-day sheet
+  totals it. On their own jobs they own the details and can correct them.
+- A driver cannot promote themselves, move themselves between teams, hand a job
+  to a colleague, or file a position under another driver's name.
 - Someone outside the team sees nothing at all — not a job, not a position, not
   even the team's existence.
 - **A join code puts someone on the team as a driver, never as a dispatcher**,
@@ -161,13 +170,13 @@ rebuilt client gains nothing — the database refuses the query.
 ### Verifying it yourself
 
 The rules are covered by a test suite that builds a throwaway Postgres from the
-schema file and checks 56 behaviours — the permitted ones and the denied ones,
+schema file and checks 75 behaviours — the permitted ones and the denied ones,
 the end-of-day totals (right jobs, right day, and one team's takings never
 visible to another), and push dispatch (the right events fire, the wrong ones
 stay silent, and the webhook secret is out of reach of any signed-in user):
 
 ```bash
-npm run test:db     # 56 database checks, from schema to RLS to push dispatch
+npm run test:db     # 75 database checks: schema, RLS, push dispatch, driver jobs
 npm run test:eta    # 22 checks on the ETA provider ladder, against stubbed HTTP
 ```
 
@@ -185,9 +194,10 @@ rung rather than throwing. Any `FAIL` row is a real regression.
 A driver's phone registers an Expo push token against their profile. A trigger
 on `jobs` hands the job id to the `notify-driver` edge function, which looks up
 the driver's devices and sends through Expo. Two things buzz a driver: a job
-being assigned to them, and a job they hold being cancelled. Accepting, sending
-an ETA and completing deliberately stay silent — a driver should not be
-notified about their own taps.
+being assigned to them, and a job they hold being cancelled. A dispatcher is
+buzzed when a driver raises a job of their own. Accepting, sending an ETA and
+completing deliberately stay silent — nobody should be notified about their own
+taps.
 
 The database never talks to Expo, and the phone never holds a server
 credential. The function's endpoint is public (Postgres has no user session to
@@ -251,7 +261,7 @@ app/                        screens (expo-router; the file tree is the navigatio
   index.tsx                 decides where you land based on who you are
   sign-in / sign-up / onboarding
   boss/                     job board, new job, job detail, live map, end of day, team
-  driver/                   run sheet, job detail, profile
+  driver/                   run sheet, add a job, job detail, profile
 src/
   lib/                      supabase client, generated DB types, formatting, geo maths
   providers/AuthProvider    session, profile and team, shared across the app

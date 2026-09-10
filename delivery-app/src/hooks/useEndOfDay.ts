@@ -115,6 +115,7 @@ export function useEndOfDay(orgId: string | null | undefined, day: Date) {
       variance: collected - expected,
       deliveries: jobs.length,
       items,
+      driverAdded: jobs.filter((job) => job.origin === 'driver').length,
       byDriver: [...byDriver.values()].sort((a, b) => b.collected - a.collected),
       short: jobs.filter((job) => Number(job.cash_collected ?? 0) < Number(job.cash_to_collect)),
     };

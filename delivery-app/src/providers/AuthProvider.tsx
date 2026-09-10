@@ -77,11 +77,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [loadProfile]);
 
-  // Only drivers are sent jobs, so only drivers are asked for notification
-  // permission — there is no sense prompting a dispatcher for a buzz that will
-  // never come.
+  // Both roles get notifications now: a driver when work is sent to them, a
+  // dispatcher when a driver logs work of their own. Registration waits until
+  // someone is actually on a team, so the permission prompt arrives with a
+  // reason attached rather than on the sign-up screen.
   useEffect(() => {
-    if (!session || profile?.role !== 'driver' || !profile.org_id) return;
+    if (!session || !profile?.org_id) return;
 
     let active = true;
     registerForPush().then((result) => {
@@ -95,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
     };
-  }, [session, profile?.role, profile?.org_id]);
+  }, [session, profile?.org_id]);
 
   const refresh = useCallback(async () => {
     await loadProfile(session?.user.id);

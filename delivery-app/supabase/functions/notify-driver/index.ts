@@ -16,7 +16,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 
-type Event = "assigned" | "cancelled";
+type Event = "assigned" | "cancelled" | "driver_created";
 
 type ExpoTicket = {
   status: "ok" | "error";
@@ -36,7 +36,11 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function compose(event: Event, job: Record<string, unknown>) {
+function compose(
+  event: Event,
+  job: Record<string, unknown>,
+  driverName: string | null,
+) {
   const address = String(job.address ?? "a delivery");
   const products = Number(job.product_count ?? 0);
   const cash = Number(job.cash_to_collect ?? 0);
@@ -50,6 +54,13 @@ function compose(event: Event, job: Record<string, unknown>) {
 
   const parts = [`${products} ${products === 1 ? "item" : "items"}`];
   if (cash > 0) parts.push(`${money(cash)} to collect`);
+
+  if (event === "driver_created") {
+    return {
+      title: `${driverName ?? "A driver"} added a job`,
+      body: `${address} — ${parts.join(", ")}`,
+    };
+  }
 
   return {
     title: "New delivery for you",
@@ -96,12 +107,19 @@ Deno.serve(async (req: Request) => {
   }
 
   const jobId = payload.job_id;
-  const event: Event = payload.event === "cancelled" ? "cancelled" : "assigned";
+  const event: Event = payload.event === "cancelled"
+    ? "cancelled"
+    : payload.event === "driver_created"
+    ? "driver_created"
+    : "assigned";
   if (!jobId) return json({ error: "Missing job_id" }, 400);
 
   const { data: job, error: jobError } = await supabase
     .from("jobs")
-    .select("id, address, product_count, cash_to_collect, driver_id, status")
+    .select(
+      "id, address, product_count, cash_to_collect, driver_id, status, origin, " +
+        "driver:profiles!jobs_driver_id_fkey (full_name)",
+    )
     .eq("id", jobId)
     .maybeSingle();
 
@@ -112,23 +130,41 @@ Deno.serve(async (req: Request) => {
   if (!job) return json({ skipped: "job no longer exists" });
   if (!job.driver_id) return json({ skipped: "job has no driver" });
 
-  const { data: tokenRows, error: tokenError } = await supabase
-    .from("device_tokens")
-    .select("expo_token")
-    .eq("profile_id", job.driver_id);
+  // A driver adding their own work is news for the dispatchers, not for the
+  // driver who just typed it in.
+  let tokens: string[] = [];
+  if (event === "driver_created") {
+    const { data: rows, error } = await supabase.rpc("org_dispatcher_tokens", {
+      p_job: jobId,
+    });
+    if (error) {
+      console.error("dispatcher token lookup failed", error.message);
+      return json({ error: "Lookup failed" }, 500);
+    }
+    tokens = (rows ?? []).map((row: { expo_token: string }) => row.expo_token);
+    if (tokens.length === 0) {
+      return json({ skipped: "no dispatcher has a registered device" });
+    }
+  } else {
+    const { data: rows, error } = await supabase
+      .from("device_tokens")
+      .select("expo_token")
+      .eq("profile_id", job.driver_id);
 
-  if (tokenError) {
-    console.error("token lookup failed", tokenError.message);
-    return json({ error: "Lookup failed" }, 500);
-  }
-
-  const tokens = (tokenRows ?? []).map((row) => row.expo_token as string);
-  if (tokens.length === 0) {
-    return json({ skipped: "driver has no registered device" });
+    if (error) {
+      console.error("token lookup failed", error.message);
+      return json({ error: "Lookup failed" }, 500);
+    }
+    tokens = (rows ?? []).map((row) => row.expo_token as string);
+    if (tokens.length === 0) {
+      return json({ skipped: "driver has no registered device" });
+    }
   }
 
   // --- send ----------------------------------------------------------------
-  const { title, body } = compose(event, job);
+  const driverName =
+    (job as { driver?: { full_name?: string } }).driver?.full_name ?? null;
+  const { title, body } = compose(event, job, driverName);
 
   const messages = tokens.map((to) => ({
     to,

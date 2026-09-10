@@ -30,7 +30,10 @@ export function JobCard({
     <Link href={href as never} asChild>
       <Pressable style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
         <View style={styles.header}>
-          <Pill text={STATUS_LABEL[job.status]} tone={STATUS_TONE[job.status]} />
+          <View style={styles.badges}>
+            <Pill text={STATUS_LABEL[job.status]} tone={STATUS_TONE[job.status]} />
+            {job.origin === 'driver' ? <Pill text="Driver added" tone="neutral" /> : null}
+          </View>
           {job.status === 'en_route' && job.eta_at ? (
             <Text style={styles.eta}>ETA {clockTime(job.eta_at)}</Text>
           ) : job.eta_minutes != null ? (
@@ -76,7 +79,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   pressed: { opacity: 0.75 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  badges: { flexDirection: 'row', gap: spacing.xs, flexShrink: 1, flexWrap: 'wrap' },
   eta: { ...type.label, color: colors.primary },
   address: { ...type.heading },
   driver: { ...type.body, color: colors.textMuted },

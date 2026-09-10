@@ -67,6 +67,7 @@ export type Database = {
           product_count: number;
           cash_to_collect: number;
           notes: string | null;
+          origin: string;
           status: string;
           decline_reason: string | null;
           eta_minutes: number | null;
@@ -96,6 +97,7 @@ export type Database = {
           product_count?: number;
           cash_to_collect?: number;
           notes?: string | null;
+          origin?: string;
           status?: string;
           decline_reason?: string | null;
           eta_minutes?: number | null;
@@ -125,6 +127,7 @@ export type Database = {
           product_count?: number;
           cash_to_collect?: number;
           notes?: string | null;
+          origin?: string;
           status?: string;
           decline_reason?: string | null;
           eta_minutes?: number | null;

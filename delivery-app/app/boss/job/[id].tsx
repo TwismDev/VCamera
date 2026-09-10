@@ -85,6 +85,12 @@ export default function BossJobDetail() {
           <Pill text={STATUS_LABEL[job.status]} tone={STATUS_TONE[job.status]} />
           <Text style={styles.timestamp}>Created {relativeTime(job.created_at)}</Text>
         </View>
+        {job.origin === 'driver' ? (
+          <Banner tone="info">
+            {job.driver?.full_name || 'The driver'} added this job themselves. The details are
+            theirs to edit; everything else works as normal.
+          </Banner>
+        ) : null}
         <Text style={type.heading}>{job.address}</Text>
         {job.customer_name ? <Text style={styles.muted}>For {job.customer_name}</Text> : null}
         {job.notes ? <Text style={styles.notes}>{job.notes}</Text> : null}

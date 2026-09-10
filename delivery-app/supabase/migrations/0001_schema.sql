@@ -53,6 +53,10 @@ create table if not exists public.jobs (
   cash_to_collect          numeric(12, 2) not null default 0 check (cash_to_collect >= 0),
   notes                    text,
 
+  -- Who raised it: the dispatcher, or a driver logging work they picked up.
+  origin                   text not null default 'dispatcher'
+                             check (origin in ('dispatcher', 'driver')),
+
   -- lifecycle
   status                   text not null default 'assigned'
                              check (status in ('assigned', 'accepted', 'en_route',
@@ -80,6 +84,7 @@ create table if not exists public.jobs (
 
 create index if not exists jobs_org_status_idx    on public.jobs (org_id, status, created_at desc);
 create index if not exists jobs_driver_status_idx on public.jobs (driver_id, status, created_at desc);
+create index if not exists jobs_org_origin_idx     on public.jobs (org_id, origin, created_at desc);
 
 -- Where each driver is right now: one row per driver, overwritten in place.
 create table if not exists public.driver_locations (
@@ -181,6 +186,53 @@ $$;
 drop trigger if exists jobs_stamp_status on public.jobs;
 create trigger jobs_stamp_status before update on public.jobs
   for each row execute function public.stamp_job_status();
+
+-- The update policy decides which rows a driver may touch; this decides which
+-- columns. Without it a driver could rewrite `cash_to_collect` on a job the
+-- dispatcher sent out, quietly erasing a shortfall before the end-of-day sheet
+-- totals it up.
+create or replace function public.guard_job_driver_edits()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- Only clamp the assigned driver editing their own row. A dispatcher, and any
+  -- server-side work with no session, pass straight through.
+  if auth.uid() is null or old.driver_id is distinct from auth.uid() then
+    return new;
+  end if;
+  if public.is_boss() then
+    return new;
+  end if;
+
+  -- Ownership and provenance are never the driver's to rewrite.
+  new.org_id      := old.org_id;
+  new.created_by  := old.created_by;
+  new.driver_id   := old.driver_id;
+  new.origin      := old.origin;
+  new.created_at  := old.created_at;
+  new.assigned_at := old.assigned_at;
+
+  -- On work the dispatcher sent out, the brief is theirs. On a job the driver
+  -- raised themselves, they own the details and may correct them.
+  if old.origin = 'dispatcher' then
+    new.address         := old.address;
+    new.customer_name   := old.customer_name;
+    new.customer_phone  := old.customer_phone;
+    new.product_count   := old.product_count;
+    new.cash_to_collect := old.cash_to_collect;
+    new.notes           := old.notes;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.guard_job_driver_edits() from public, anon, authenticated;
+
+-- Named to sort before jobs_stamp_status, so the clamp lands before the
+-- lifecycle timestamps are worked out.
+drop trigger if exists jobs_guard_driver_edits on public.jobs;
+create trigger jobs_guard_driver_edits before update on public.jobs
+  for each row execute function public.guard_job_driver_edits();
 
 -- A driver may edit their own name and phone. `role` and `org_id` are pinned:
 -- the only way those change is through the membership RPCs below, which raise
@@ -429,10 +481,20 @@ create policy jobs_select on public.jobs
   for select to authenticated
   using (org_id = public.current_org_id() and (public.is_boss() or driver_id = auth.uid()));
 
+-- A dispatcher may create work for anyone on the team. A driver may create work
+-- only for themselves: handing jobs to a colleague stays a dispatcher's call.
 drop policy if exists jobs_insert_boss on public.jobs;
-create policy jobs_insert_boss on public.jobs
+drop policy if exists jobs_insert on public.jobs;
+create policy jobs_insert on public.jobs
   for insert to authenticated
-  with check (public.is_boss() and org_id = public.current_org_id() and created_by = auth.uid());
+  with check (
+    org_id = public.current_org_id()
+    and created_by = auth.uid()
+    and (
+      (public.is_boss() and origin = 'dispatcher')
+      or (not public.is_boss() and origin = 'driver' and driver_id = auth.uid())
+    )
+  );
 
 drop policy if exists jobs_update on public.jobs;
 create policy jobs_update on public.jobs
@@ -659,7 +721,11 @@ create or replace function public.on_job_notify_driver()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if tg_op = 'INSERT' then
-    if new.driver_id is not null then
+    -- A driver logging their own work should not be buzzed about it, but the
+    -- dispatchers should hear that it happened.
+    if new.origin = 'driver' then
+      perform public.dispatch_job_push(new.id, 'driver_created');
+    elsif new.driver_id is not null then
       perform public.dispatch_job_push(new.id, 'assigned');
     end if;
     return new;
@@ -684,6 +750,21 @@ $$;
 drop trigger if exists jobs_notify_driver on public.jobs;
 create trigger jobs_notify_driver after insert or update on public.jobs
   for each row execute function public.on_job_notify_driver();
+
+-- Lets the edge function reach a team's dispatchers to tell them a driver
+-- added work. Runs as the service role, which bypasses RLS.
+create or replace function public.org_dispatcher_tokens(p_job uuid)
+returns table (expo_token text)
+language sql stable security definer set search_path = public as $$
+  select t.expo_token
+    from public.jobs j
+    join public.profiles p on p.org_id = j.org_id and p.role = 'boss'
+    join public.device_tokens t on t.profile_id = p.id
+   where j.id = p_job;
+$$;
+
+revoke all on function public.org_dispatcher_tokens(uuid) from public, anon, authenticated;
+grant execute on function public.org_dispatcher_tokens(uuid) to service_role;
 
 revoke all on function public.register_device_token(text, text, text) from public, anon;
 revoke all on function public.unregister_device_token(text)           from public, anon;

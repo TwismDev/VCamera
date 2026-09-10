@@ -18,13 +18,17 @@ export type JobStatus =
 
 export type EtaSource = 'auto' | 'manual';
 
+/** Who raised the job: the dispatcher, or the driver picking up their own work. */
+export type JobOrigin = 'dispatcher' | 'driver';
+
 export type Organization = Tables<'organizations'>;
 
 export type Profile = Omit<Tables<'profiles'>, 'role'> & { role: Role };
 
-export type Job = Omit<Tables<'jobs'>, 'status' | 'eta_source'> & {
+export type Job = Omit<Tables<'jobs'>, 'status' | 'eta_source' | 'origin'> & {
   status: JobStatus;
   eta_source: EtaSource | null;
+  origin: JobOrigin;
 };
 
 export type JobPatch = TablesUpdate<'jobs'>;

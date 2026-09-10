@@ -55,6 +55,8 @@ export default function DriverJobs() {
         <Summary label="Cash to collect" value={money(cashOnBoard)} />
       </View>
 
+      <Button title="+ Add a job" onPress={() => router.push('/driver/new-job')} />
+
       <SectionTitle>Active ({open.length})</SectionTitle>
       {open.length === 0 ? (
         <Empty title="Nothing assigned" body="New jobs land here the moment your dispatcher sends them." />

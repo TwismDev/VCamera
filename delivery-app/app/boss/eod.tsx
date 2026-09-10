@@ -2,7 +2,7 @@ import * as Clipboard from 'expo-clipboard';
 import React, { useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
-import { Banner, Button, Card, Empty, Loading, Row, Screen, SectionTitle } from '@/components/ui';
+import { Banner, Button, Card, Empty, Loading, Pill, Row, Screen, SectionTitle } from '@/components/ui';
 import { clockTime, money } from '@/lib/format';
 import { addDays, isToday, useEndOfDay } from '@/hooks/useEndOfDay';
 import { useAuth } from '@/providers/AuthProvider';
@@ -101,6 +101,12 @@ export default function EndOfDay() {
           }
         />
         {totals.items > 0 ? <Row label="Items delivered" value={String(totals.items)} /> : null}
+        {totals.driverAdded > 0 ? (
+          <Row
+            label="Added by drivers"
+            value={`${totals.driverAdded} of ${totals.deliveries}`}
+          />
+        ) : null}
       </Card>
 
       {totals.short.length > 0 ? (
@@ -141,6 +147,7 @@ export default function EndOfDay() {
                 </Text>
                 <Text style={styles.amount}>{money(job.cash_collected)}</Text>
               </View>
+              {job.origin === 'driver' ? <Pill text="Driver added" tone="neutral" /> : null}
               {job.customer_name?.trim() ? (
                 <Text style={styles.muted} numberOfLines={1}>
                   {job.address}
