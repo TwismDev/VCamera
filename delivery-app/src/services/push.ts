@@ -17,9 +17,16 @@ import { supabase } from '@/lib/supabase';
 /** Android needs the channel to exist before the first notification lands. */
 export const JOBS_CHANNEL = 'jobs';
 
+export type PushFailure =
+  | 'simulator'
+  | 'permission-denied'
+  | 'no-project-id'
+  | 'no-fcm'
+  | 'failed';
+
 export type PushRegistration =
   | { ok: true; token: string }
-  | { ok: false; reason: 'simulator' | 'permission-denied' | 'no-project-id' | 'failed'; detail?: string };
+  | { ok: false; reason: PushFailure; detail?: string };
 
 // Notifications arriving while the app is open should still be seen — a driver
 // glancing at the map shouldn't miss the next job.
@@ -51,7 +58,9 @@ async function ensureAndroidChannel(): Promise<void> {
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#1D4ED8',
-    sound: 'default',
+    // `sound` here names a bundled audio *file*, so the string 'default' makes
+    // the native module hunt for default.wav and warn when it isn't there.
+    // Omitting it is what actually selects the system notification sound.
   });
 }
 
@@ -92,7 +101,11 @@ export async function registerForPush(): Promise<PushRegistration> {
 
     return { ok: true, token };
   } catch (err) {
-    return { ok: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) };
+    const detail = err instanceof Error ? err.message : String(err);
+    // Android routes Expo push through Firebase, so a project missing its
+    // google-services.json fails here rather than at build time.
+    const missingFirebase = /firebase|googleservices|fcm/i.test(detail);
+    return { ok: false, reason: missingFirebase ? 'no-fcm' : 'failed', detail };
   }
 }
 
@@ -133,10 +146,12 @@ export function readJobNotification(
   };
 }
 
-export const pushUnavailableReason: Record<Exclude<PushRegistration, { ok: true }>['reason'], string> = {
+export const pushUnavailableReason: Record<PushFailure, string> = {
   simulator: 'Push notifications only work on a real phone, not a simulator.',
   'permission-denied': 'Notifications are switched off for this app in your phone’s settings.',
   'no-project-id':
     'This build has no EAS project id, so Expo cannot issue a push token. Run `eas init` and rebuild.',
+  'no-fcm':
+    'Android push needs Firebase set up for this app. Everything else works; jobs still appear the moment the app is open.',
   failed: 'Could not register this phone for notifications.',
 };

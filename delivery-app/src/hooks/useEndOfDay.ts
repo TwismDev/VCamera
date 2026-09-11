@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { subscribeToChanges } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import type { JobWithDriver } from '@/lib/types';
 
@@ -76,18 +77,11 @@ export function useEndOfDay(orgId: string | null | undefined, day: Date) {
   useEffect(() => {
     if (!orgId) return;
 
-    const channel = supabase
-      .channel(`eod:${orgId}:${startIso}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'jobs', filter: `org_id=eq.${orgId}` },
-        () => void load(),
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
+    return subscribeToChanges(
+      `eod:${orgId}:${startIso}`,
+      { table: 'jobs', filter: `org_id=eq.${orgId}` },
+      () => void load(),
+    );
   }, [orgId, startIso, load]);
 
   const totals = useMemo(() => {

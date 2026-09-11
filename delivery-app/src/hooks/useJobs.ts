@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { subscribeToChanges } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import type { JobPatch, JobWithDriver } from '@/lib/types';
 
@@ -53,18 +54,11 @@ export function useJobs(scope: Scope | null) {
   useEffect(() => {
     if (!orgId) return;
 
-    const channel = supabase
-      .channel(`jobs:${orgId}:${driverId ?? 'all'}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'jobs', filter: `org_id=eq.${orgId}` },
-        () => void load(),
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
+    return subscribeToChanges(
+      `jobs:${orgId}:${driverId ?? 'all'}`,
+      { table: 'jobs', filter: `org_id=eq.${orgId}` },
+      () => void load(),
+    );
   }, [orgId, driverId, load]);
 
   return { jobs, loading, error, reload: load };
@@ -98,18 +92,11 @@ export function useJob(jobId: string | undefined) {
   useEffect(() => {
     if (!jobId) return;
 
-    const channel = supabase
-      .channel(`job:${jobId}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'jobs', filter: `id=eq.${jobId}` },
-        () => void load(),
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
+    return subscribeToChanges(
+      `job:${jobId}`,
+      { table: 'jobs', filter: `id=eq.${jobId}`, event: 'UPDATE' },
+      () => void load(),
+    );
   }, [jobId, load]);
 
   return { job, loading, reload: load };

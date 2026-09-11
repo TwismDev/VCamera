@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { subscribeToChanges } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import type { DriverLocationWithProfile } from '@/lib/types';
 
@@ -34,23 +35,11 @@ export function useDriverLocations(orgId: string | null | undefined) {
   useEffect(() => {
     if (!orgId) return;
 
-    const channel = supabase
-      .channel(`driver_locations:${orgId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'driver_locations',
-          filter: `org_id=eq.${orgId}`,
-        },
-        () => void load(),
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
+    return subscribeToChanges(
+      `driver_locations:${orgId}`,
+      { table: 'driver_locations', filter: `org_id=eq.${orgId}` },
+      () => void load(),
+    );
   }, [orgId, load]);
 
   return { locations, loading, reload: load };
