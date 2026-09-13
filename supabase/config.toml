@@ -1,0 +1,7 @@
+project_id = "delivery-tracker"
+
+[functions.geocode]
+verify_jwt = true
+
+[functions.route-eta]
+verify_jwt = true
