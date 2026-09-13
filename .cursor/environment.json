@@ -1,0 +1,9 @@
+{
+  "name": "VCamera Android",
+  "user": "ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "install": "./.cursor/install.sh"
+}
