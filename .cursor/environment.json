@@ -1,0 +1,9 @@
+{
+  "name": "Delivery Tracker",
+  "user": "node",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "install": "./.cursor/install.sh"
+}
