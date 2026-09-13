@@ -13,6 +13,12 @@ export function minutesLabel(minutes: number | null | undefined): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+/** Elapsed time along a GPS trail, from first ping to last. */
+export function durationLabel(ms: number): string {
+  if (ms < 30_000) return 'under a minute';
+  return minutesLabel(Math.max(1, Math.round(ms / 60_000)));
+}
+
 export function clockTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });

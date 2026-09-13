@@ -71,3 +71,7 @@ psql -h "$base" -p "$port" -U postgres -v ON_ERROR_STOP=1 \
 echo
 psql -h "$base" -p "$port" -U postgres -v ON_ERROR_STOP=1 \
   -f "$here/04_driver_jobs.sql"
+
+echo
+psql -h "$base" -p "$port" -U postgres -v ON_ERROR_STOP=1 \
+  -f "$here/05_replay.sql"

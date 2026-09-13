@@ -23,6 +23,7 @@ the dispatcher's board and map live.
 | 6 | Dispatcher | Watches the live map: every driver, every active drop, distance remaining, speed, phone battery, and how long ago each position arrived. |
 | 7 | Driver | Taps **Complete delivery**, confirms products delivered and cash collected (both pre-filled with what was sent out, editable if the drop came up short), adds a note. |
 | 8 | Dispatcher | Sees it land as completed, with delivered-vs-sent and collected-vs-due side by side, and a warning banner if either came back short. Location sharing stops the moment the job closes. |
+| 8b | Dispatcher or driver | **Replay this run** draws the GPS trail that was recorded on the way: start, drop, distance, time on the road, and a play button that walks the pin along the route. Tracking still only ran between Start and Complete — this is just looking at what was already stored. |
 | 9 | Dispatcher | At knock-off, the **End of day sheet** totals the day's takings: cash collected, cash due, the difference, a per-driver breakdown of who is holding what, and every delivery with its customer name and time. Any earlier day can be pulled up with the arrows, and the whole thing copies out as plain text for a handover message. |
 
 ### About the ETA
@@ -170,14 +171,17 @@ rebuilt client gains nothing — the database refuses the query.
 ### Verifying it yourself
 
 The rules are covered by a test suite that builds a throwaway Postgres from the
-schema file and checks 75 behaviours — the permitted ones and the denied ones,
+schema file and checks 83 behaviours — the permitted ones and the denied ones,
 the end-of-day totals (right jobs, right day, and one team's takings never
-visible to another), and push dispatch (the right events fire, the wrong ones
-stay silent, and the webhook secret is out of reach of any signed-in user):
+visible to another), push dispatch (the right events fire, the wrong ones
+stay silent, and the webhook secret is out of reach of any signed-in user),
+and the GPS trail (a driver files their own crumbs, a dispatcher can replay
+them after the job completes, a teammate cannot watch a colleague's run):
 
 ```bash
-npm run test:db     # 75 database checks: schema, RLS, push dispatch, driver jobs
+npm run test:db     # 83 database checks: schema, RLS, push dispatch, driver jobs, replay
 npm run test:eta    # 22 checks on the ETA provider ladder, against stubbed HTTP
+npm run test:geo    # 9 checks on path distance used by route replay
 ```
 
 The database suite needs a local PostgreSQL 15+ (`initdb`, `pg_ctl`, `psql`)
@@ -249,8 +253,11 @@ active — that is required by the OS, and it is also the honest thing to show
 someone whose location is being broadcast.
 
 Positions are written two ways: `driver_locations` holds one row per driver
-(the live pin, overwritten in place) and `location_pings` appends every reading,
-so a run can be replayed afterwards.
+(the live pin, overwritten in place) and `location_pings` appends every reading.
+**Replay this run** on a job that has been started draws that trail on a map
+and can play it back. A driver only ever sees their own crumbs; a dispatcher
+sees the team's. Completing the job does not delete the trail — that is the
+point of keeping it.
 
 ---
 
@@ -262,10 +269,11 @@ app/                        screens (expo-router; the file tree is the navigatio
   sign-in / sign-up / onboarding
   boss/                     job board, new job, job detail, live map, end of day, team
   driver/                   run sheet, add a job, job detail, profile
+  replay/[id]               GPS trail for one job, with play-back
 src/
   lib/                      supabase client, generated DB types, formatting, geo maths
   providers/AuthProvider    session, profile and team, shared across the app
-  hooks/                    realtime job, team, location and end-of-day queries
+  hooks/                    realtime job, team, location, ping and end-of-day queries
   services/
     tracking.ts             background GPS task and its permissions
     eta.ts                  geocoding and drive-time estimation

@@ -10,6 +10,7 @@
     "start": "expo start --dev-client",
     "test:db": "./supabase/tests/run.sh",
     "test:eta": "esbuild src/services/eta.ts --bundle --platform=node --format=cjs --external:expo-location --alias:@=./src --outfile=tests/.build/eta.cjs --log-level=error && node tests/eta.test.cjs",
+    "test:geo": "esbuild src/lib/geo.ts --bundle --platform=node --format=cjs --outfile=tests/.build/geo.cjs --log-level=error && node tests/geo.test.cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

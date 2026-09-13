@@ -18,6 +18,15 @@ export function kmLabel(km: number): string {
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
 }
 
+/** Sum of the legs between consecutive points. One point, or none, is 0. */
+export function pathDistanceKm(points: LatLng[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    total += haversineKm(points[i - 1], points[i]);
+  }
+  return total;
+}
+
 export function isLatLng(lat: unknown, lng: unknown): boolean {
   return (
     typeof lat === 'number' &&

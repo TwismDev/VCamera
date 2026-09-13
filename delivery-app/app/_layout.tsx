@@ -47,6 +47,7 @@ function Navigation() {
           <Stack.Screen name="boss/map" options={{ title: 'Live map' }} />
           <Stack.Screen name="boss/eod" options={{ title: 'End of day' }} />
           <Stack.Screen name="boss/team" options={{ title: 'Team' }} />
+          <Stack.Screen name="replay/[id]" options={{ title: 'Replay run' }} />
           <Stack.Screen name="driver/index" options={{ title: 'My deliveries' }} />
           <Stack.Screen name="driver/new-job" options={{ title: 'Add a job' }} />
           <Stack.Screen name="driver/job/[id]" options={{ title: 'Delivery' }} />

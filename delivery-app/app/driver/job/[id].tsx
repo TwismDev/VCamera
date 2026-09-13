@@ -431,6 +431,14 @@ export default function DriverJobDetail() {
           {job.completion_notes ? <Text style={styles.notes}>{job.completion_notes}</Text> : null}
         </Card>
       ) : null}
+
+      {job.started_at || job.status === 'en_route' || job.status === 'completed' ? (
+        <Button
+          title={job.status === 'en_route' ? 'Show route so far' : 'Replay this run'}
+          variant="secondary"
+          onPress={() => router.push(`/replay/${job.id}`)}
+        />
+      ) : null}
     </Screen>
   );
 }

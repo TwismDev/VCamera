@@ -207,6 +207,14 @@ export default function BossJobDetail() {
         </Card>
       ) : null}
 
+      {job.started_at || job.status === 'en_route' || job.status === 'completed' ? (
+        <Button
+          title={job.status === 'en_route' ? 'Show route so far' : 'Replay this run'}
+          variant="secondary"
+          onPress={() => router.push(`/replay/${job.id}`)}
+        />
+      ) : null}
+
       {job.status === 'declined' && job.decline_reason ? (
         <Banner tone="danger">Declined: {job.decline_reason}</Banner>
       ) : null}
